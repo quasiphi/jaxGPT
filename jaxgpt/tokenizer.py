@@ -56,7 +56,7 @@ class Encoder:
 
         self.encoder = encoder
         self.decoder = {v: k for k, v in self.encoder.items()}
-        self.bpe_ranks = dict(zip, bpe_merges, range(len(bpe_merges)))
+        self.bpe_ranks = dict(zip( bpe_merges, range(len(bpe_merges))))
 
         # splitting pattern for pre-tokenization
         self.pat = re.compile(PATTERN)
