@@ -49,8 +49,7 @@ def get_pairs(word: str) -> set[tuple[str, str]]:
 
 
 class Encoder:
-    # TODO: check type for encoder
-    def __init__(self, encoder, bpe_merges: list[tuple[list[str]]]) -> None:
+    def __init__(self, encoder: dict[str, int], bpe_merges: list[tuple[list[str]]]) -> None:
         self.byte_encoder = bytes_to_unicode()
         self.byte_decoder = {v: k for k, v in self.byte_encoder.items()}
 
