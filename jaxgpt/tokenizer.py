@@ -61,7 +61,46 @@ class Encoder:
         self.pat = re.compile(PATTERN)
         self.cache = {}
 
+
+def get_file(local_file: str, url: str) -> None:
+    if not os.path.isfile(local_file):
+        print(f"Downloading {url} to {local_file}")
+        response = requests.get(url)
+        open(local_file, "wb").write(response.content)
+
+def get_encoder() -> Encoder:
+    """
+    Returns an instance of the GPT/BPE Encoder/Decoder
+    and handles caching of "database" files.
+    """
+
+    home_dir = os.path.expanduser("~")
+    cache_dir = os.path.join(home_dir, ".jaxgpt")
+    os.makedirs(cache_dir, exist_ok=True)
+
+    encoder_local_file = os.path.join(cache_dir, "encoder.json")
+    encoder_remote_url = "https://openaipublic.blob.core.windows.net/gpt-2/models/124M/encoder.json"
+    get_file(encoder_local_file, encoder_remote_url)
+    with open(encoder_local_file, "r") as f:
+        encoder = json.load(f)
+    # 256 individual byte tokens, 50,000 merged tokens, and 1 special <|endoftext|> token
+    assert len(encoder) == 50257
+
+    vocab_local_file = os.path.join(cache_dir, "vocab.bpe")
+    vocab_remote_url = "https://openaipublic.blob.core.windows.net/gpt-2/models/124M/vocab.bpe"
+    get_file(vocab_local_file, vocab_remote_url)
+    with open(vocab_local_file, "r", encoding="utf-8") as f:
+        bpe_data = f.read()
+    bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split("\n")[1:-1]]
+    assert len(bpe_merges) == 50000
+
+    print(type(encoder))
+    print(encoder)
+    return Encoder(encoder, bpe_merges)
+
+
 if __name__ == "__main__":
     print(bytes_to_unicode())
     word = "kocham Pati"
     print(get_pairs(word))
+    E = get_encoder()
