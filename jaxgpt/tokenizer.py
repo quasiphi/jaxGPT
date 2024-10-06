@@ -2,6 +2,7 @@ import os
 import json
 import regex as re
 import requests
+import pprint
 
 import jax
 
@@ -113,10 +114,9 @@ class Encoder:
         self.cache[token] = word
         return word
 
-
-
-    def encode(self, text: str) -> list[int]:
+    def encode(self, text: str, debug: bool = False) -> list[int]:
         bpe_idx = []
+        parts = []
         # pre-tokenization
         tokens = re.findall(self.pat, text)
         for token in tokens:
@@ -126,6 +126,22 @@ class Encoder:
             token_ix = [self.encoder[bpe_token] for bpe_token in token_merged]
             bpe_idx.extend(token_ix)
             print(token, token_bytes, token_translated, token_merged)
+            if debug:
+                parts.append({
+                    'token': token,
+                    'token_bytes': token_bytes,
+                    'token_translated': token_translated,
+                    'token_merged': token_merged,
+                    'token_ix': token_ix
+                })
+
+        if debug:
+            pprint.pp({
+                'bpe_idx': bpe_idx,
+                'tokens': tokens,
+                'parts': parts
+            })
+
         return bpe_idx
 
 
@@ -167,4 +183,4 @@ def get_encoder() -> Encoder:
 if __name__ == "__main__":
     word = "kocham Pati"
     E = get_encoder()
-    E.encode(word)
+    E.encode(word, debug = True)
