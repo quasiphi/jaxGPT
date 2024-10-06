@@ -143,6 +143,21 @@ class Encoder:
             })
 
         return bpe_idx
+    
+    def decode(self, bpe_idx: list[int], debug: bool = False) -> str:
+        tokens_merged = [self.decoder[token] for token in bpe_idx]
+        tokens_flat = "".join(tokens_merged)
+        tokens_bytes = bytearray([self.byte_decoder[c] for c in tokens_flat])
+        text = tokens_bytes.decode("utf-8", errors="replace")
+        if debug:
+            pprint.pp({
+                'bpe_idx': bpe_idx,
+                'tokens_merged': tokens_merged,
+                'tokens_flat': tokens_flat,
+                'tokens_bytes': tokens_bytes,
+                'text': text
+            })
+        return text
 
 
 def get_file(local_file: str, url: str) -> None:
@@ -183,4 +198,5 @@ def get_encoder() -> Encoder:
 if __name__ == "__main__":
     word = "kocham Pati"
     E = get_encoder()
-    E.encode(word, debug = True)
+    enc = E.encode(word, debug = True)
+    dec = E.decode(enc, debug = True)
