@@ -5,6 +5,7 @@ import requests
 import pprint
 
 import jax
+import jax.numpy as jnp
 
 """
     ok so what is this regex looking for, exactly?
@@ -193,6 +194,21 @@ def get_encoder() -> Encoder:
     assert len(bpe_merges) == 50000
 
     return Encoder(encoder, bpe_merges)
+
+class Tokenizer:
+    def __init__(self) -> None:
+        self.encoder = get_encoder()
+    
+    def __call__(self, text: str):
+        assert isinstance(text, str)
+        idx = [self.encoder.encode(text)]
+        out = jnp.array(idx, dtype=jnp.int64)
+        return out
+
+    def decode(self, idx: jnp.array) -> str:
+        assert idx.ndim == 2
+        text = self.encoder.decode(list(idx))
+        return text
 
 
 if __name__ == "__main__":
