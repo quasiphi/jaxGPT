@@ -54,3 +54,27 @@ class CasualSelfAttention(nn.Module):
         y = self.resid_dropout(self.c_proj(y))
         return y
 
+
+class Block(nn.Module):
+    config: CN
+
+    def setup(self) -> None:
+        self.ln1 = nn.LayerNorm()
+        self.attn = CasualSelfAttention(self.config)
+        self.ln2 = nn.LayerNorm()
+
+        # MLP
+        self.c_fc = nn.Dense(self.config.n_embd * 4)
+        self.c_proj = nn.Dense(self.config.n_embd)
+        self.dropout = nn.Dropout(self.config.resid_pdrop)
+
+    def mlp(self, x: jnp.Array) -> jnp.Array:
+        x = self.c_fc(x)
+        x = nn.gelu(x)
+        x = self.c_proj(x)
+        return self.dropout(x)
+
+    def __call__(self, x: jnp.Array) -> jnp.Array:
+        x = x + self.attn(self.ln1(x))
+        x = x + self.mlp(self.ln2(x))
+        return x
