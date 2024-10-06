@@ -61,6 +61,73 @@ class Encoder:
         self.pat = re.compile(PATTERN)
         self.cache = {}
 
+    def bpe(self, token: str) -> str:
+        """
+        this function uses self.bpe_ranks to iteratively merge all the possible bpe tokens
+        up the tree. token is a string of one individual 'word' (after regex tokenization)
+        and after byte encoding, e.g. 'Ġthere'.
+        """
+
+        if token in self.cache:
+            return self.cache[token]
+
+        word = tuple(token)
+        pairs = get_pairs(word)
+
+        if not pairs:
+            return token
+
+        while True:
+            # lowest rank bigram
+            bigram = min(pairs, key=lambda pair: self.bpe_ranks.get(pair, float("inf")))
+            if bigram not in self.bpe_ranks:
+                break
+
+            first, second = bigram
+            new_word = []
+            i = 0
+            while i < len(word):
+                try:
+                    j = word.index(first, i)
+                    new_word.extend(word[i:j])
+                    i = j
+                except:
+                    new_word.extend(word[i:])
+                    break
+
+                if word[i] == first and i < len(word)-1 and word[i+1] == second:
+                    new_word.append(first + second)
+                    i += 2
+                else:
+                    new_word.append(word[i])
+                    i += 1
+
+            new_word = tuple(new_word)
+            word = new_word
+            if len(word) == 1:
+                break
+            else:
+                pairs = get_pairs(word)
+
+        word = ' '.join(word)
+        self.cache[token] = word
+        return word
+
+
+
+    def encode(self, text: str) -> list[int]:
+        bpe_idx = []
+        # pre-tokenization
+        tokens = re.findall(self.pat, text)
+        for token in tokens:
+            token_bytes = token.encode('utf-8')
+            token_translated = ''.join(self.byte_encoder[b] for b in token_bytes)
+            token_merged = self.bpe(token_translated).split(' ')
+            token_ix = [self.encoder[bpe_token] for bpe_token in token_merged]
+            bpe_idx.extend(token_ix)
+            print(token, token_bytes, token_translated, token_merged)
+        return bpe_idx
+
 
 def get_file(local_file: str, url: str) -> None:
     if not os.path.isfile(local_file):
@@ -94,13 +161,10 @@ def get_encoder() -> Encoder:
     bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split("\n")[1:-1]]
     assert len(bpe_merges) == 50000
 
-    print(type(encoder))
-    print(encoder)
     return Encoder(encoder, bpe_merges)
 
 
 if __name__ == "__main__":
-    print(bytes_to_unicode())
     word = "kocham Pati"
-    print(get_pairs(word))
     E = get_encoder()
+    E.encode(word)
