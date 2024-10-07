@@ -1,4 +1,5 @@
 jax
 flax
+optax
 numpy
 transformers
