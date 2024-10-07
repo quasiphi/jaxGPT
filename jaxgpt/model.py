@@ -248,5 +248,29 @@ class GPT(nn.Module):
 
         return optim
 
+    def apply_gradients(self, optimizer, grads, params):
+        updates, new_optimizer = optimizer.update(grads, params)
+        new_params = optax.apply_updates(params, updates)
+        return new_params, new_optimizer
+
+    def __call__(self, idx: jnp.Array, targets = None) -> jnp.Array:
+        b, t = idx.shape
+        assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is {self.block_size}"
+
+        pos = jnp.arange(0, t, dtype=jnp.int64)
+
+        tok_emb  = self.wte(idx) # (b, t, n_embd)
+        pos_emb = self.wpe(pos) # (1, t, n_embd)
+        x = self.drop(tok_emb + pos_emb)
+
+        for block in self.h: x = block(x)
+
+        x = self.ln_f(x)
+        logits = self.lm_head(x)
+
+        loss = None
+        if targets is not None:
+            loss = optax.softmax_cross_entropy(logits, jax.nn.one_hot(targets, self.config.vocab_size))
+        return logits, loss
 
 
