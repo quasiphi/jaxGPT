@@ -5,6 +5,8 @@ import jax
 import jax.lax as lax
 import jax.numpy as jnp
 from flax import linen as nn
+from flax.core import freeze, unfreeze
+import optax
 
 from jaxgpt.utils import CfgNode as CN
 
@@ -208,3 +210,43 @@ class GPT(nn.Module):
                 raise ValueError(f"Missing key in Hugging Face params: {key}")
 
         return new_params
+
+
+    def configure_optimizers(self, params):
+        decay = set()
+        no_decay = set()
+        whitelist_weight_modules = (nn.Dense, )
+        blacklist_weight_modules = (nn.LayerNorm, nn.Embed)
+
+        param_dict = freeze(params)
+
+        for path, param in param_dict.items():
+            if path.endswith('bias') or isinstance(param, blacklist_weight_modules):
+                no_decay.add(path)
+            elif path.endswith('wieght') and isinstance(param, whitelist_weight_modules):
+                decay.add(path)
+
+        decay_params = {p: param_dict[p] for p in decay}
+        no_decay_params = {p: param_dict[p] for p in no_decay}
+
+        decay_schedule = optax.add_decayed_weights(
+            decay_params, weight_decay=self.config.weight_decay
+        )
+
+        no_decay_schedule = optax.add_decayed_weights(
+            no_decay_params, weight_decay=0.0
+        )
+
+        optim = optax.chain(
+            decay_schedule,
+            no_decay_schedule,
+            optax.scale_by_adam(
+                b1=self.config.betas[0],
+                b2=self.config.betas[1],
+            )
+        )
+
+        return optim
+
+
+
