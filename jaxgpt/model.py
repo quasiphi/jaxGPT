@@ -31,7 +31,7 @@ class CasualSelfAttention(nn.Module):
         self.n_head = self.config.n_head
         self.n_embd = self.config.n_embd
 
-    def __call__(self, x: jnp.Array) -> jnp.Array:
+    def __call__(self, x: jax.Array) -> jax.Array:
         assert x.ndim == 3
         B, T, C = x.shape
 
@@ -71,13 +71,13 @@ class Block(nn.Module):
         self.c_proj = nn.Dense(self.config.n_embd)
         self.dropout = nn.Dropout(self.config.resid_pdrop)
 
-    def mlp(self, x: jnp.Array) -> jnp.Array:
+    def mlp(self, x: jax.Array) -> jax.Array:
         x = self.c_fc(x)
         x = nn.gelu(x)
         x = self.c_proj(x)
         return self.dropout(x)
 
-    def __call__(self, x: jnp.Array) -> jnp.Array:
+    def __call__(self, x: jax.Array) -> jax.Array:
         x = x + self.attn(self.ln1(x))
         x = x + self.mlp(self.ln2(x))
         return x
@@ -157,7 +157,7 @@ class GPT(nn.Module):
 
         # TODO: what about weight initialization?
 
-    def transformer(self, x: jnp.Array) -> jnp.Array:
+    def transformer(self, x: jax.Array) -> jax.Array:
         x = self.wte(x)
         x = self.wpe(x)
         x = self.drop(x)
@@ -254,7 +254,7 @@ class GPT(nn.Module):
         new_params = optax.apply_updates(params, updates)
         return new_params, new_optimizer
 
-    def __call__(self, idx: jnp.Array, targets = None) -> jnp.Array:
+    def __call__(self, idx: jax.Array, targets = None) -> tuple[jax.Array, jax.Array]:
         b, t = idx.shape
         assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is {self.block_size}"
 
