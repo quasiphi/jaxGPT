@@ -4,6 +4,7 @@ from typing import Type
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
+from jax import random
 from flax import linen as nn
 from flax.core import freeze, unfreeze
 import optax
@@ -271,6 +272,35 @@ class GPT(nn.Module):
         loss = None
         if targets is not None:
             loss = optax.softmax_cross_entropy(logits, jax.nn.one_hot(targets, self.config.vocab_size))
+
         return logits, loss
 
+    @nn.compact
+    def generate(self, idx, max_new_tokens, temperature = 1.0, do_sample=False, top_k=None):
+        for _ in range(max_new_tokens):
+            _, t = idx.shape
+            if t > self.block_size:
+                idx_cond = idx[:, -self.block_size:]
+            else:
+                idx_cond = idx
 
+            logits, _ = self.apply({'params': self.params}, idx_cond)
+            logits = logits[:, -1, :] / temperature
+
+            if top_k is not None:
+                v, _ = jax.lax.top_k(logits, top_k)
+                min_top_k = v[:, -1, None]
+                logits = jnp.where(logits < min_top_k, -jnp.inf, logits)
+
+            probs = jax.nn.softmax(logits, axis=-1)
+
+            if do_sample:
+                rng_key = random.PRNGKey(self.config.system.seed)
+                rng_key, subkey = random.split(rng_key) # generate new and overwrite old
+                next_token = random.categorical(subkey, logits, axis=-1)
+            else: 
+                next_token = jnp.argmax(probs, axis=-1)
+
+            # add token to the sequence
+            idx = jnp.concatenate([idx, next_token[:, None]], axis=-1)  
+        return idx
