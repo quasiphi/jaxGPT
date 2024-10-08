@@ -11,7 +11,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-KeyArray = Type[jnp.Array]
+KeyArray = Type[jax.Array]
 
 def colored(st: str, color: Optional[str] = None, background: int | bool = False) -> str:
     if color is not None:

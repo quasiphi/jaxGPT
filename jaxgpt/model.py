@@ -11,7 +11,7 @@ import optax
 
 from jaxgpt.utils import CfgNode as CN
 
-def masked_fill(a: jnp.Array, mask: jnp.Array, fill: jax.typing.DTypeLike) -> jnp.Array:
+def masked_fill(a: jax.Arrray, mask: jax.Arrray, fill: jax.typing.DTypeLike) -> jax.Arrray:
     """
     fill tensor a with value fill where mask is True
     """
