@@ -3,9 +3,12 @@ import json
 import regex as re
 import requests
 import pprint
+from collections import defaultdict
 
 import jax
 import jax.numpy as jnp
+
+from jaxgpt.utils import colored
 
 """
     ok so what is this regex looking for, exactly?
@@ -205,14 +208,31 @@ class Tokenizer:
         out = jnp.array(idx, dtype=jnp.int64)
         return out
 
+    def encode(self, text: str, debug: bool = False):
+        """
+        Encode the input text into token indices.
+        """
+        assert isinstance(text, str)
+        idx = self.encoder.encode(text, debug=debug)
+        return jnp.array([idx], dtype=jnp.int32)
+
     def decode(self, idx: jnp.array) -> str:
         assert idx.ndim == 2
-        text = self.encoder.decode(list(idx))
+        idx_list = jax.device_get(idx).tolist()[0]
+        text = self.encoder.decode(idx_list)
         return text
 
 
 if __name__ == "__main__":
+    print(colored("*** using something ... ***", "red"))
     word = "kocham Pati"
     E = get_encoder()
     enc = E.encode(word, debug = True)
     dec = E.decode(enc, debug = True)
+
+    print(colored("*** using my tokenizer ***", "green"))
+    tokenizer = Tokenizer()
+    encoded = tokenizer.encode(word)
+    print(encoded)
+    decoded = tokenizer.decode(encoded)
+    print(decoded)
