@@ -126,7 +126,7 @@ class GPT(nn.Module):
                 'gpt2-xl':      dict(n_layer=48, n_head=25, n_embd=1600),
                 'gpt-mini':     dict(n_layer=6, n_head=6, n_embd=192),
                 'gpt-macro':    dict(n_layer=4, n_head=4, n_embd=128),
-                'gpt-mini':     dict(n_layer=3, n_head=3, n_embd=48),
+                'gpt-nano':     dict(n_layer=3, n_head=3, n_embd=48),
             }[self.config.model_type])
 
         # self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
