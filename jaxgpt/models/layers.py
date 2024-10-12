@@ -57,3 +57,39 @@ class MultiHeadAttention(nn.Module):
         output = self.out_proj(values)
         return output, attention
 
+
+class EncoderBlock(nn.Module):
+    input_dim: int
+    num_heads: int
+    dim_feedforward: int
+    dropout_prob: float
+
+    def setup(self):
+        # deterministic parameters on dropouts are set in the __call__ method
+        self.self_attn = MultiHeadAttention(
+            num_heads=self.num_heads,
+            d_model=self.input_dim
+        )
+
+        self.linear = [
+            nn.Dense(self.dim_feedforward),
+            nn.Dropout(rate=self.dropout_prob),
+            nn.relu,
+            nn.Dense(self.input_dim)
+        ]
+
+        self.norm1 = nn.LayerNorm()
+        self.norm2 = nn.LayerNorm()
+        self.dropout = nn.Dropout(rate=self.dropout_prob)
+
+    def __call__(self, x, mask=None, train=True):
+        attn_out, _ = self.self_attn(x, mask=mask)
+        x = x + self.dropout(attn_out, deterministic=not train)
+        x = self.norm1(x)
+        lin_out = x
+        for l in self.linear:
+            if not isinstance(l, nn.Dropout): lin_out = l(lin_out)
+            else: lin_out = l(lin_out, deterministic=not train)
+        x = x + self.dropout(lin_out, deterministic=not train)
+        x = self.norm2(x)
+        return x
