@@ -17,6 +17,7 @@ class Trainer:
         C.num_workers = 4
         C.max_iters = None
         C.batch_size = 64
+        C.block_size = 128
         C.learning_rate = 3e-4
         C.betas = (0.9, 0.95)
         C.weight_decay = 0.1
@@ -49,16 +50,27 @@ class Trainer:
             callback(self)
 
     def create_train_state(self, rng, model, config):
-        params = model.init(rng, jnp.ones((self.config.batch_size, *self.train_dataset[0][0].shape)))
+        # Debug print
+        print("Train dataset shape:", self.train_dataset[0][0].shape)
+        print("Train dataset type:", self.train_dataset[0][0].dtype)
+        
+        # Use the first batch of actual training data for initialization
+        init_data = jax.tree_map(lambda x: x[:config.batch_size], self.train_dataset[0])
+        
+        # Debug print
+        print("Init data shape:", init_data[0].shape)
+        print("Init data type:", init_data[0].dtype)
+        
+        params = model.init(rng, init_data[0], train=True)
         tx = optax.chain(
-        optax.clip_by_global_norm(config.grad_norm_clip),
-        optax.adamw(config.learning_rate, b1=config.betas[0], b2=config.betas[1], weight_decay=config.weight_decay),
+            optax.clip_by_global_norm(config.grad_norm_clip),
+            optax.adamw(config.learning_rate, b1=config.betas[0], b2=config.betas[1], weight_decay=config.weight_decay),
         )
-        return TrainState.create(apply_fn=model.apply, params=params, tx=tx) 
+        return TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
     def run(self):
         config = self.config
-        rng = jax.random.PRNGKey(config.system.seed)
+        rng = jax.random.PRNGKey(config.seed)
         self.state = self.create_train_state(rng, self.model, config)
 
         def data_generator(dataset, batch_size):
@@ -76,7 +88,7 @@ class Trainer:
 
         @jax.jit
         def loss_fn(params, x, y):
-            logits = model.apply({'params': params}, x)
+            logits, _ = model.apply({'params': params}, x, train=True)
             loss = jnp.mean(optax.softmax_cross_entropy(logits=logits, labels=jax.nn.one_hot(y, logits.shape[-1])))
             return loss
 
@@ -85,6 +97,13 @@ class Trainer:
         while True:
             batch = next(train_loader)
             x, y = batch
+
+            # Add debugging information here
+            print("Input shape:", x.shape)
+            print("Input data sample:", x[:5])
+            print("Target shape:", y.shape)
+            print("Target data sample:", y[:5])
+
             loss, grads = grad_fn(self.state.params, x, y)
             self.state = self.state.apply_gradients(grads=grads)
             self.trigger_callbakcs('on_batch_end')

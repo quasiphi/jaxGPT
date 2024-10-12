@@ -9,7 +9,7 @@ from flax import linen as nn
 from flax.core import freeze, unfreeze
 import optax
 
-from jaxgpt.utils import CfgNode as CN
+from jaxgpt.utils import colored, CfgNode as CN
 
 def masked_fill(a: jax.Array, mask: jax.Array, fill: jax.typing.DTypeLike) -> jax.Array:
     """
@@ -27,18 +27,16 @@ class CasualSelfAttention(nn.Module):
         self.attn_dropout = nn.Dropout(self.config.attn_pdrop)
         self.resid_dropout = nn.Dropout(self.config.resid_pdrop)
 
-        self.bias = jnp.tril(jnp.ones((self.config.block_size, self.config.block_size)))
+        self.bias = jnp.tril(jnp.ones((self.config.block_size, self.config.block_size)).reshape(1, 1, self.config.block_size, self.config.block_size))
         self.n_head = self.config.n_head
         self.n_embd = self.config.n_embd
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(self, x: jax.Array, deterministic: bool = False) -> jax.Array:
         assert x.ndim == 3
+        # batch size, sequence length, embedding dimensionality (n_embd)
         B, T, C = x.shape
 
-        #qkv = qkv.reshape(B, T, self.n_head, 3 * (C // self.n_head))
-        #q, k, v = jnp.split(qkv, 3, axis=-1)
-
-        q, k, v = jnp.split(self.c_attn(x), self.n_embd, axis=2)
+        q, k, v = jnp.split(self.c_attn(x), 3, axis=2)
 
         # (B, nh, T, hs)
         q = k.reshape(B, T, self.n_head, C // self.n_head).transpose(1,2)
@@ -47,14 +45,16 @@ class CasualSelfAttention(nn.Module):
         print(q.shape, k.shape, v.shape)
 
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.shape[-1]))
-        att = masked_fill(att, self.bias[:, :, :T, :T], -jnp.inf)
+        #att = masked_fill(att, self.bias[:, :, :T, :T], -jnp.inf)
+        att = masked_fill(att, self.bias[:, :, :T, :T], float('-inf'))
         att = nn.softmax(att, axis=-1)
+        att = self.attn_dropout(att, deterministic=deterministic)
         # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         print(att.shape, v.shape)
         y = att @ v
         print(y.shape)
         y = y.transpose(1, 2).reshape(B, T, C)
-        y = self.resid_dropout(self.c_proj(y))
+        y = self.resid_dropout(self.c_proj(y), deterministic=deterministic)
         return y
 
 
@@ -71,15 +71,15 @@ class Block(nn.Module):
         self.c_proj = nn.Dense(self.config.n_embd)
         self.dropout = nn.Dropout(self.config.resid_pdrop)
 
-    def mlp(self, x: jax.Array) -> jax.Array:
+    def mlp(self, x: jax.Array, deterministic: bool = False) -> jax.Array:
         x = self.c_fc(x)
         x = nn.gelu(x)
         x = self.c_proj(x)
-        return self.dropout(x)
+        return self.dropout(x, deterministic=deterministic)
 
-    def __call__(self, x: jax.Array) -> jax.Array:
-        x = x + self.attn(self.ln1(x))
-        x = x + self.mlp(self.ln2(x))
+    def __call__(self, x: jax.Array, deterministic: bool = False) -> jax.Array:
+        x = x + self.attn(self.ln1(x), deterministic=deterministic)
+        x = x + self.mlp(self.ln2(x), deterministic=deterministic)
         return x
 
 class GPT(nn.Module):
@@ -133,7 +133,7 @@ class GPT(nn.Module):
         # but used Dense instead of Linear 
         self.lm_head = nn.Dense(
             self.config.vocab_size,
-            kernel_init = nn.initializers.normal(stdev=0.02),
+            kernel_init = nn.initializers.normal(stddev=0.02),
             use_bias=False
         )
 
@@ -254,17 +254,20 @@ class GPT(nn.Module):
         new_params = optax.apply_updates(params, updates)
         return new_params, new_optimizer
 
-    def __call__(self, idx: jax.Array, targets = None) -> tuple[jax.Array, jax.Array]:
+    def __call__(self, idx: jax.Array, targets = None, train: bool = True) -> tuple[jax.Array, jax.Array]:
         b, t = idx.shape
         assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is {self.block_size}"
 
-        pos = jnp.arange(0, t, dtype=jnp.int64)
+        pos = jnp.arange(0, t, dtype=jnp.int32)
+        pos = jnp.expand_dims(pos, axis=0)  # Shape: (1, t)
+        pos = jnp.repeat(pos, b, axis=0)  # Shape: (b, t)
 
-        tok_emb  = self.wte(idx) # (b, t, n_embd)
-        pos_emb = self.wpe(pos) # (1, t, n_embd)
-        x = self.drop(tok_emb + pos_emb)
+        tok_emb = self.wte(idx)  # (b, t, n_embd)
+        pos_emb = self.wpe(pos)  # (b, t, n_embd)
+        x = self.drop(tok_emb + pos_emb, deterministic=not train)
 
-        for block in self.h: x = block(x)
+        for block in self.h:
+            x = block(x, deterministic=not train)
 
         x = self.ln_f(x)
         logits = self.lm_head(x)
@@ -272,6 +275,7 @@ class GPT(nn.Module):
         loss = None
         if targets is not None:
             loss = optax.softmax_cross_entropy(logits, jax.nn.one_hot(targets, self.config.vocab_size))
+            loss = jnp.mean(loss)
 
         return logits, loss
 
@@ -284,7 +288,9 @@ class GPT(nn.Module):
             else:
                 idx_cond = idx
 
-            logits, _ = self.apply({'params': self.params}, idx_cond)
+            #logits, _ = self.apply({'params': params}, idx_cond, train=False)
+
+            logits, _ = self(idx_cond, train=False)
             logits = logits[:, -1, :] / temperature
 
             if top_k is not None:

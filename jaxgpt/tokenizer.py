@@ -129,7 +129,7 @@ class Encoder:
             token_merged = self.bpe(token_translated).split(' ')
             token_ix = [self.encoder[bpe_token] for bpe_token in token_merged]
             bpe_idx.extend(token_ix)
-            print(token, token_bytes, token_translated, token_merged)
+            #print(token, token_bytes, token_translated, token_merged)
             if debug:
                 parts.append({
                     'token': token,
