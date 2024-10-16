@@ -1,7 +1,6 @@
 import jax.numpy as jnp
 from typing import Generator
-from transformers import GPT2Tokenizer
-
+import tiktoken
 
 class DataLoader:
     def __init__(self, dataset, batch_size, seq_len):
@@ -9,14 +8,17 @@ class DataLoader:
         self.batch_size = batch_size
         self.seq_len = seq_len
 
-        self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        self.tokenizer = tiktoken.get_encoding('gpt2')
 
-    def tokenize(self, text: str):
-        return self.tokenizer(text, return_tensor='jax', padding=True, truncation=True)['input_ids']
+    def tokenize(self, text: str) -> jnp.ndarray:
+        return jnp.array(self.tokenizer.encode_ordinary(text))
 
-    def create_batches(self) -> Generator[jnp.ndarray]:
-        n = len(self.dataset) // self.batch_size
-        for i in range(n):
-            batch = self.dataset[i*self.batch_size:(i+1)*self.batch_size]
-            tokenized_batch = jnp.array([self.tokenize(text) for text in batch])
-            yield tokenized_batch
+    def create_batches(self) -> tuple[jnp.ndarray, jnp.ndarray]:
+        n = len(self.dataset)
+        train_data = self.dataset[:int(n*0.9)]
+        val_data = self.dataset[int(n*0.9):]
+
+        train_ids = self.tokenize(train_data)
+        val_ids = self.tokenize(val_data)
+
+        return train_ids, val_ids
