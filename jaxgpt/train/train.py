@@ -2,6 +2,8 @@
 
 import sys
 from pathlib import Path
+from ast import literal_eval
+from pprint import pprint
 
 import jax
 import jax.numpy as jnp
@@ -9,86 +11,72 @@ import jax.random as random
 from flax.training import train_state
 from optax import adamw, softmax_cross_entropy
 
-from jaxgpt.utils.checkpoints import save_checkpoint
-from jaxgpt.models.gpt import GPT
-from jaxgpt.data.sanitize import prepare_file
-from jaxgpt.data.data_loader import DataLoader
+from jaxgpt.models.gpt import GPT, GPTConfig
 
-def create_train_state(rng, model, learning_rate):
-    # variables?
-    params = model.init(rng, jnp.ones((1, 512), dtype=jnp.int32))
-    tx = adamw(learning_rate)
-    return train_state.TrainState.create(
-        apply_fn=model.apply,
-        params=params,
-        tx=tx
-    )
+out_dir = 'out'
+eval_interval = 2000
+log_interval = 1
+eval_iters = 200
+always_save_checkpoint = True
+init_from = 'scratch' # or 'resume' or 'gpt2' for pretrained
 
-def loss_fn(model, params, inputs, labels):
-    logits = model.apply(params, inputs)
-    loss = jnp.mean(softmax_cross_entropy(logits, labels))
-    return loss
+# data
+dataset = 'shakespeare'
+batch_size = 12
+block_size = 1024
+# model
+n_layer = 12
+n_head = 12
+n_embd = 768
+dropout = 0.0
 
-def train_epoch(model, state, train_loader, rng):
-    epoch_loss = 0.0
-    for batch in train_loader:
-        inputs, labels = batch, batch
-        loss, grads = jax.value_and_grad(loss_fn)(model, state.params, inputs, labels)
-        state = state.apply_gradients(grads=grads)
-        epoch_loss += loss
-    return state, epoch_loss / len(train_loader)
+# optim
+learning_rate = 6e-4
+max_iters = 600000
+weight_decay = 1e-2
+beta1 = 0.9
+beta2 = 0.95
 
-def train_model(rng, train_loader, model, epochs, learning_rate):
-    state = create_train_state(rng, model, learning_rate)
-    # TODO: tqdm
-    for epoch in range(epochs):
-        state, avg_loss = train_epoch(model, state, train_loader, rng)
-        print(f'Epoch {epoch}, loss: {avg_loss}')
-        save_checkpoint(state, epoch)
+decay_lr = True
+warmup_iters = 2000
+lr_decay_iters = 600000 # set it ~ max_iters
+min_lr = 6e-5
 
-if __name__ == '__main__':
-    rng = random.PRNGKey(80085)
+# i think these are unused
+device = 'cpu'
+dtype = 'bfloat16'
 
-    file_name = sys.argv[1]
-    path = Path(file_name).absolute().resolve()
-    assert path.exists(), f'Object at supplied path does not exist: {path}'
-    assert path.is_file(), f'Object at supplied path is not a file: {path}'
-    train_data = prepare_file(path)
+max_new_tokens = 100
+temperature = 0.8
+top_k = 200
 
-    with open(path, 'r') as f:
-        data = f.read()
+config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
+print(config_keys)
 
-    train_loader = DataLoader(data, batch_size=32, seq_len=2)
-    train_ids, val_ids = train_loader.create_batches()
+# check if the config has been supplied
+for arg in sys.argv[1:]:
+    if '=' not in arg:
+        continue
+    kv = arg.split('=')
+    assert len(kv) == 2, f"expecting each override arg to be of form --arg=value, got {arg}"
+    k, v = kv
+    assert k[:2] == '--'
+    k = k[2:]
+    if k == 'config':
+        config_file = Path(v)
+        if not config_file.exists():
+            print(f'Config file {v} not found')
+            continue
+        config = {} 
+        with open(config_file, 'r') as f:
+            for line in f:
+                key, value = line.strip().split('=')
+                key = key.strip()
+                value = value.strip()
+                print(key, value)
+                if key in config_keys:
+                    config[key] = eval(value)
+        globals().update(config)
 
-    # Define model hyperparameters
-    num_layers = 6
-    num_heads = 8
-    d_model = 512
-    d_ff = 2048
-    vocab_size = train_loader.tokenizer.n_vocab
-    print(vocab_size)
-    max_seq_len = train_loader.seq_len
-    dropout_rate = 0.1
-
-    # Initialize the model
-    model = GPT(
-        num_layers=num_layers,
-        num_heads=num_heads,
-        d_model=d_model,
-        d_ff=d_ff,
-        vocab_size=vocab_size,
-        max_seq_len=max_seq_len,
-        dropout_rate=dropout_rate
-    )
-
-    # Set training parameters
-    epochs = 10
-    learning_rate = 1e-4
-
-    # Train the model
-    train_model(rng, train_ids, model, epochs, learning_rate)
-
-    # Optionally, you can add validation here
-    # val_loss = evaluate_model(model, val_ids)
-    # print(f'Validation loss: {val_loss}')
+config = {k: globals()[k] for k in config_keys}
+pprint(config)
