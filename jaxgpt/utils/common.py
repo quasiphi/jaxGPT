@@ -18,6 +18,10 @@ def colored(st: str, color: Optional[str] = None, background: int | bool = False
         return f"\u001b[{10*background+60*(color.upper() == color)+30+['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'].index(color.lower())}m{st}\u001b[0m"
     else: return st
 
+def colored_bool(b: bool, st: Optional[str] = None) -> str:
+    if st: return colored(st, 'green' if b else 'red')
+    return colored(str(b), 'green' if b else 'red')
+
 class Timing(contextlib.ContextDecorator):
     def __init__(self, prefix: str = "", on_exit: Optional[callable] = None, enabled: bool = True) -> None:
         self.prefix = prefix
