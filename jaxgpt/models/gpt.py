@@ -109,7 +109,7 @@ class GPT(nn.Module):
 
         def copy_from(flax_name, pt_name, transpose=False, add_head_dim=False, debug=True):
             if debug:
-                print(f'copying {colored(pt_name, 'red')} -> {colored(flax_name, 'green')} :: {colored_bool(transpose, 'T')} :: {colored_bool(add_head_dim, "H")}')
+                print(f"copying {colored(pt_name, 'red')} -> {colored(flax_name, 'green')} :: {colored_bool(transpose, 'T')} :: {colored_bool(add_head_dim, 'H')}")
             pt_tensor = sd_hf[pt_name]
             jax_array = flat_params[flax_name]
             if transpose:
