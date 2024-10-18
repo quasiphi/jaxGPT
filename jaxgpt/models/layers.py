@@ -1,95 +1,98 @@
 import math
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+import jax
 import jax.numpy as jnp
 from flax import linen as nn
-
-# (batch, seq, head, dims)
-BSHD = (0, 2, 1, 3)
-
-def expand_mask(mask: jnp.ndarray) -> jnp.ndarray:
-    assert mask.ndim >= 2
-    if mask.ndim == 3:
-        mask = mask.expand_dims(axis=1)
-    while mask.ndim < 4:
-        mask = mask.expand_dims(axis=0)
-    return mask
-
-def scaled_dot_product(q, k, v, mask=None):
-    d_k = q.shape[-1]
-    attn_logits = jnp.matmul(q, jnp.swapaxes(k, -2, -1))
-    attn_logits = attn_logits / math.sqrt(d_k)
-    if mask is not None:
-        attn_logits = jnp.where(mask == 0, -9e15, attn_logits)
-    attention = nn.softmax(attn_logits, axis=-1)
-    values = jnp.matmul(attention, v)
-    return values, attention
+import numpy as np
+import optax
+from flax.traverse_util import path_aware_map
+from flax.core import freeze
+from flax.training import train_state
+from flax import traverse_util
 
 
-class MultiHeadAttention(nn.Module):
-    num_heads: int
-    d_model: int
 
-    def setup(self):
-        self.qkv_proj = nn.Dense(
-            3 * self.d_model,
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros
-        )
-        self.out_proj = nn.Dense(
-            self.d_model,
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros
-        )
-        #self.head_dim = self.d_model // self.num_heads
+# set default config
+@dataclass
+class GPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50257
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.1
 
-    def __call__(self, x, mask=None):
-        batch_size, seq_len, embed_dim = x.shape
-        if mask is not None:
-            mask = expand_mask(mask)
+class CasualSelfAttention(nn.Module):
+    config: GPTConfig
 
-        qkv = self.qkv_proj(x)
-        qkv = qkv.reshape(batch_size, seq_len, self.num_heads, -1)
-        qkv = qkv.transpose(BSHD)
-        q, k, v = jnp.array_split(qkv, 3, axis=-1)
+    def setup(self) -> None:
+        config = self.config
 
-        values, attention = scaled_dot_product(q, k, v, mask=mask)
-        values = values.transpose(BSHD)
-        values = values.reshape(batch_size, seq_len, embed_dim)
-        output = self.out_proj(values)
-        return output, attention
+        assert config.n_embd % config.n_head == 0
+
+        #head_size = config.n_embd // config.n_head
+
+        self.c_attn = nn.Dense(config.n_embd * 3)
+        self.c_proj = nn.Dense(config.n_embd) # output projection
+        # regularization
+        self.attn_dropout = nn.Dropout(config.dropout)
+        self.resid_dropout = nn.Dropout(config.dropout)
+
+        self.n_head = config.n_head
+        self.n_embd = config.n_embd
+
+    # `train` is keyword-only
+    def __call__(self, x: jax.Array, *, train: bool) -> jax.Array:
+        B, T, C = x.shape # batch size, seq len, n_embd
+
+        q, k, v = self.c_attn(x).split(3, axis=-1)
+        q = q.reshape(B, T, self.n_head, C // self.n_head).swaapaxes(1, 2)
+        k = k.reshape(B, T, self.n_head, C // self.n_head).swaapaxes(1, 2)
+        v = v.reshape(B, T, self.n_head, C // self.n_head).swaapaxes(1, 2)
+
+        mask = jnp.tril(jnp.ones((T, T))).reshape((1, 1, T, T))
+
+        att = (q @ k.swapaxes(-2, -1)) * (1.0 / jnp.sqrt(k.shape[-1]))
+        att = jnp.where(mask == 0, float('-inf'), att)
+        att = nn.softmax(att, axis=-1)
+        att = self.attn_dropout(att, deterministic = not train)
+
+        y = att @ v
+        y = y.swapaxes(1, 2).reshape(B, T, C)
+        y = self.resid_dropout(self.c_proj(y), deterministic = not train)
+        return y
 
 
-class EncoderBlock(nn.Module):
-    input_dim: int
-    num_heads: int
-    dim_feedforward: int
-    dropout_prob: float
+class MLP(nn.Module):
+    config: GPTConfig
 
-    def setup(self):
-        # deterministic parameters on dropouts are set in the __call__ method
-        self.self_attn = MultiHeadAttention(
-            num_heads=self.num_heads,
-            d_model=self.input_dim
-        )
+    def setup(self) -> None:
+        config = self.config
+        self.c_fc = nn.Dense(config.n_embd * 4)
+        self.c_proj = nn.Dense(config.n_embd)
+        self.dropout = nn.Dropout(config.dropout)
 
-        self.linear = [
-            nn.Dense(self.dim_feedforward),
-            nn.Dropout(rate=self.dropout_prob),
-            nn.relu,
-            nn.Dense(self.input_dim)
-        ]
+    def __call__(self, x: jax.Array, *, train: bool) -> jax.Array:
+        x = self.c_fc(x)
+        x = nn.gelu(x, approximate=True)
+        x = self.c_proj(x)
+        x = self.dropout(x, deterministic = not train)
+        return x
 
-        self.norm1 = nn.LayerNorm()
-        self.norm2 = nn.LayerNorm()
-        self.dropout = nn.Dropout(rate=self.dropout_prob)
 
-    def __call__(self, x, mask=None, train=True):
-        attn_out, _ = self.self_attn(x, mask=mask)
-        x = x + self.dropout(attn_out, deterministic=not train)
-        x = self.norm1(x)
-        lin_out = x
-        for l in self.linear:
-            if not isinstance(l, nn.Dropout): lin_out = l(lin_out)
-            else: lin_out = l(lin_out, deterministic=not train)
-        x = x + self.dropout(lin_out, deterministic=not train)
-        x = self.norm2(x)
+class Block(nn.Module):
+    config: GPTConfig
+
+    def setup(self) -> None:
+        config = self.config
+        self.ln1 = nn.LayerNorm(epsilon=1e-5)
+        self.attn = CasualSelfAttention(config)
+        self.ln2 = nn.LayerNorm(epsilon=1e-5)
+        self.mlp = MLP(config)
+
+    def __call__(self, x: jax.Array, *, train: bool) -> jax.Array:
+        x = x + self.attn(self.ln1(x), train=train)
+        x = x + self.mlp(self.ln2(x), train=train)
         return x
