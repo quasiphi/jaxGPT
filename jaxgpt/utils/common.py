@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import random
+import functools
 import contextlib
 from typing import Optional, Type
 from ast import literal_eval
@@ -105,4 +106,22 @@ class CfgNode:
             assert hasattr(obj, leaf_key), f"{key} is not an attribute that exists in the config"
             print(f"command line overwriting config attribute {key} with {val}")
             setattr(obj, leaf_key, val)
+
+
+IS_RUNNING = False
+def print_compiling(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        global IS_RUNNING
+        revert = False
+        try:
+            if not IS_RUNNING:
+                print(f'compiling {colored(f.__name__, "yelleow")}')
+                IS_RUNNING = True
+                revert = True
+            return f(*args, **kwargs)
+        finally:
+            if revert:
+                IS_RUNNING = False
+    return wrapper
 
