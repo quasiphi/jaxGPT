@@ -3,20 +3,37 @@ import sys
 import time
 import json
 import random
+import pathlib
+import hashlib
+import tempfile
+import platform
+import functools
 import contextlib
-from typing import Optional, Type
+import urllib.request
+from tqdm import tqdm
 from ast import literal_eval
+from typing import Optional, Type
 
 import numpy as np 
 import jax
 import jax.numpy as jnp
 
+OSX = platform.system() == 'Darwin'
+CACHE_DIR = (
+    os.path.expanduser('~/Library/Caches') if OSX else os.path.expanduser('~/.cache')
+)
+
 KeyArray = Type[jax.Array]
+
 
 def colored(st: str, color: Optional[str] = None, background: int | bool = False) -> str:
     if color is not None:
         return f"\u001b[{10*background+60*(color.upper() == color)+30+['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white'].index(color.lower())}m{st}\u001b[0m"
     else: return st
+
+def colored_bool(b: bool, st: Optional[str] = None) -> str:
+    if st: return colored(st, 'green' if b else 'red')
+    return colored(str(b), 'green' if b else 'red')
 
 class Timing(contextlib.ContextDecorator):
     def __init__(self, prefix: str = "", on_exit: Optional[callable] = None, enabled: bool = True) -> None:
@@ -102,3 +119,57 @@ class CfgNode:
             print(f"command line overwriting config attribute {key} with {val}")
             setattr(obj, leaf_key, val)
 
+
+IS_RUNNING = False
+def print_compiling(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        global IS_RUNNING
+        revert = False
+        try:
+            if not IS_RUNNING:
+                print(f'compiling {colored(f.__name__, "yelleow")}')
+                IS_RUNNING = True
+                revert = True
+            return f(*args, **kwargs)
+        finally:
+            if revert:
+                IS_RUNNING = False
+    return wrapper
+
+def valid_dir(fn: str | pathlib.Path):
+    if not isinstance(fn, pathlib.Path):
+        fn = pathlib.Path(fn)
+
+    if not fn.exists():
+        fn.mkdir(parents=True)
+
+def getenv(key: str, default=0): return type(default)(os.getenv(key, default))
+
+# TODO: add signature matching 
+def fetch(url: str, name: Optional[str]=None, allow_cache=(not getenv('DISABLE_HTTP_CACHE'))):
+    if url.startswith(('/', '.')): return pathlib.Path(url)
+    fp = None
+    if name is not None and (isinstance(name, pathlib.Path) or '/' in name):
+        fp = pathlib.Path(name)
+    else:
+        if name: fn = name
+        else: fn = hashlib.md5(url.encode('utf-8')).hexdigest()
+        fp = pathlib.Path(CACHE_DIR) / 'jaxgpt' / 'downloads' / fn
+    if not fp.is_file() or not allow_cache:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            assert r.status == 200
+            print(f'saving from {r} to tmp file at {fp}')
+            total_bytes = int(r.headers.get('Content-Length', 0))  
+            progress_bar = tqdm(total=total_bytes, unit='B', unit_scale=True, desc=url)
+            (path := fp.parent).mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=path, delete=False) as f:
+                while chunk := r.read(16384):
+                    progress_bar.update(f.write(chunk))
+                f.close()
+                if (file_size := os.stat(f.name).st_size) != total_bytes:
+                    raise RuntimeError(f"fetch incomplete, file size mismatch: {file_size} < {total_bytes}")
+                pathlib.Path(f.name).rename(fp)
+    else:
+        print(f'fetching from a cached file at {fp}')
+    return fp

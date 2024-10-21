@@ -16,7 +16,7 @@ from collections import defaultdict
 
 from jaxgpt.model import GPT
 from jaxgpt.trainer import Trainer
-from jaxgpt.utils import set_seed, setup_logging, CfgNode as CN
+from jaxgpt.utils.common import set_seed, setup_logging, CfgNode as CN
 from jaxgpt.tokenizer import Tokenizer  
 
 def get_config() -> CN:
