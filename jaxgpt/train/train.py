@@ -94,10 +94,12 @@ pprint(config)
 checkpoint_path = Path(out_dir) / 'checkpoints'
 checkpoint_manager = orbax.CheckpointManager(
     checkpoint_path,
-    checkpointers=orbax.Checkpointer(orbax.PyTreeCheckpointHandler()),
+    #checkpointers=orbax.Checkpointer(orbax.PyTreeCheckpointHandler()),
+    orbax.PyTreeCheckpointer(),
     options=orbax.CheckpointManagerOptions(
         max_to_keep=2,
-        keep_checkpoints_without_metrix=False,
+        #keep_checkpoints_without_metrics=False,
+        keep_period=None,
         create=True
     ),
 )
