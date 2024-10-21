@@ -154,19 +154,20 @@ def fetch(url: str, name: Optional[str]=None, allow_cache=(not getenv('DISABLE_H
         if name: fn = name
         else: fn = hashlib.md5(url.encode('utf-8')).hexdigest()
         fp = pathlib.Path(CACHE_DIR) / 'jaxgpt' / 'downloads' / fn
-        print(f'fetching from a cached file at {fp}')
     if not fp.is_file() or not allow_cache:
         with urllib.request.urlopen(url, timeout=10) as r:
             assert r.status == 200
+            print(f'saving from {r} to tmp file at {fp}')
             total_bytes = int(r.headers.get('Content-Length', 0))  
             progress_bar = tqdm(total=total_bytes, unit='B', unit_scale=True, desc=url)
             (path := fp.parent).mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=path, delete=False) as f:
-                print(f'saving from {r} to tmp file at {f}')
                 while chunk := r.read(16384):
                     progress_bar.update(f.write(chunk))
                 f.close()
                 if (file_size := os.stat(f.name).st_size) != total_bytes:
                     raise RuntimeError(f"fetch incomplete, file size mismatch: {file_size} < {total_bytes}")
                 pathlib.Path(f.name).rename(fp)
+    else:
+        print(f'fetching from a cached file at {fp}')
     return fp
