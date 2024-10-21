@@ -202,9 +202,11 @@ class GPT(nn.Module):
         if params is None:
             variables = self.init(jax.random.PRNGKey(SEED), jnp.ones((1,1), dtype=jnp.int32), train=False)
             params = variables['params']
+
+        params = freeze(params)
         if decay_lr:
             assert warmup_iters is not None and lr_decay_iters is not None and min_lr is not None
-            lr_schedule = optax.cosine_decay_schedule(
+            lr_schedule = optax.warmup_cosine_decay_schedule(
                 init_value=0.0,
                 peak_value=learning_rate,
                 warmup_steps=warmup_iters,
