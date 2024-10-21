@@ -128,7 +128,7 @@ def print_compiling(f):
         revert = False
         try:
             if not IS_RUNNING:
-                print(f'compiling {colored(f.__name__, "yelleow")}')
+                print(f'compiling {colored(f.__name__, "yellow")}')
                 IS_RUNNING = True
                 revert = True
             return f(*args, **kwargs)
