@@ -137,10 +137,12 @@ def print_compiling(f):
                 IS_RUNNING = False
     return wrapper
 
-def valid_dir(fn: str):
-    dir = pathlib.Path(fn)
-    if not dir.exists():
-        dir.mkdir(parents=True)
+def valid_dir(fn: str | pathlib.Path):
+    if not isinstance(fn, pathlib.Path):
+        fn = pathlib.Path(fn)
+
+    if not fn.exists():
+        fn.mkdir(parents=True)
 
 def getenv(key: str, default=0): return type(default)(os.getenv(key, default))
 
