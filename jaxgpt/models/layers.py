@@ -38,10 +38,10 @@ class CasualSelfAttention(nn.Module):
     def __call__(self, x: jax.Array, *, train: bool) -> jax.Array:
         B, T, C = x.shape # batch size, seq len, n_embd
 
-        q, k, v = self.c_attn(x).split(3, axis=-1)
-        q = q.reshape(B, T, self.n_head, C // self.n_head).swaapaxes(1, 2)
-        k = k.reshape(B, T, self.n_head, C // self.n_head).swaapaxes(1, 2)
-        v = v.reshape(B, T, self.n_head, C // self.n_head).swaapaxes(1, 2)
+        q, k, v = self.c_attn(x)._split(3, axis=-1)
+        q = q.reshape(B, T, self.n_head, C // self.n_head).swapaxes(1, 2)
+        k = k.reshape(B, T, self.n_head, C // self.n_head).swapaxes(1, 2)
+        v = v.reshape(B, T, self.n_head, C // self.n_head).swapaxes(1, 2)
 
         mask = jnp.tril(jnp.ones((T, T))).reshape((1, 1, T, T))
 
