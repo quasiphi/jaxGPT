@@ -171,7 +171,7 @@ class GPT(nn.Module):
         indexes = jnp.arange(T, T+max_new_tokens)
 
         def scan_f(tokens, i):
-            step_key = jax.random.split(key, 1)
+            step_key = jax.random.fold_in(key, i)
             logits, _ = self.apply({'params': params}, tokens, train=False)
             logits = logits[:, i - 1, :] / temperature
             if top_k is not None:

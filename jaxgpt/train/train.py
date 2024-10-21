@@ -218,7 +218,7 @@ tokenizer = tiktoken.get_encoding('gpt2')
 
 def sample(params, key, tokens) -> str:
     tokens = _sample(params, key, tokens)
-    return tokenizer.decode(tokens)
+    return tokenizer.decode(tokens[0])
 
 test_batch = get_batch('test')
 with Timing():
