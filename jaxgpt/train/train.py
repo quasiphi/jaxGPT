@@ -126,7 +126,7 @@ if os.path.exists(meta_path):
     print(f'vocab_size = {colored(vocab_size, "blue")} (from {meta_path})')
 else:
     print(f'vocab_size not found in {meta_path}, using GPT-2 default of {colored("50257", "blue")}')
-    vocab_size = 50257
+    vocab_size = 500
 
 # model init, config is globalized
 model_args = dict(
@@ -191,7 +191,7 @@ def train_step(state: train_state.TrainState, batch):
     state = state.apply_gradients(grads=grad)
     return loss, state
 
-def estiamte_loss():
+def estimate_loss():
     out = {}
     for split in ['train', 'test']:
         losses = np.zeros(eval_iters)
@@ -228,7 +228,7 @@ with Timing():
             print("evaluating...")
             sample_str = sample(state.params, jax.random.PRNGKey(80085), tokens=test_batch[0][0:1, :5])
             print(f'sample: {sample_str}')
-            losses = estiamte_loss()
+            losses = estimate_loss()
             print(f"step {iter_num}: train loss {losses['train']:.4f}, test loss {losses['test']:.4f}")
             if iter_num > 0:
                 print(f"saving checkpoint to {out_dir}")
@@ -260,6 +260,5 @@ with Timing():
 
         if iter_num >= max_iters:
             break
-
 
 
