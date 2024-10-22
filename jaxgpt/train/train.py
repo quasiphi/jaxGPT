@@ -25,23 +25,24 @@ from jaxgpt.utils.common import colored, print_compiling, Timing
 out_dir = 'out'
 eval_interval = 2000
 log_interval = 1
-eval_iters = 200
+eval_iters = 500
 eval_only = False
 always_save_checkpoint = True
-init_from = 'scratch' # or 'resume' or 'gpt2' for pretrained
+init_from = 'scratch' # or 'scratch' or 'resume' or 'gpt2' for pretrained
 
 # data
 dataset = 'shakespeare'
-batch_size = 12
-block_size = 1024
+batch_size = 8
+block_size = 512
+
 # model
 n_layer = 12
 n_head = 12
-n_embd = 768
+n_embd = 12
 dropout = 0.0
 
 # optim
-learning_rate = 6e-4
+learning_rate = 1e-4
 max_iters = 600000
 weight_decay = 1e-2
 beta1 = 0.9
@@ -83,7 +84,6 @@ for arg in sys.argv[1:]:
                 key, value = line.strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                print(key, value)
                 if key in config_keys:
                     config[key] = eval(value)
         globals().update(config)
@@ -125,8 +125,8 @@ if os.path.exists(meta_path):
     vocab_size = meta['vocab_size']
     print(f'vocab_size = {colored(vocab_size, "blue")} (from {meta_path})')
 else:
-    print(f'vocab_size not found in {meta_path}, using GPT-2 default of {colored("50257", "blue")}')
-    vocab_size = 500
+    vocab_size = 50257
+    print(f'vocab_size not found in {meta_path}, using GPT-2 default of {colored(str(vocab_size), "blue")}')
 
 # model init, config is globalized
 model_args = dict(
@@ -186,8 +186,11 @@ def train_step(state: train_state.TrainState, batch):
         logits, loss = forward(new_state, batch, train=True)
         return loss
 
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grad = grad_fn(state.params)
+    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+    (loss, logits), grad = grad_fn(state.params)
+    grad_norm = jnp.sqrt(sum(jnp.square(g) for g in jax.tree_util.tree_leaves(grad)))
+    clip_value = 1.0
+    grad = jax.tree_util.tree_map(lambda g: jnp.where(g > clip_value, g* clip_value / grad_norm, g), grad)
     state = state.apply_gradients(grads=grad)
     return loss, state
 
@@ -250,6 +253,11 @@ with Timing():
             break
 
         loss, state = train_step(state, get_batch('train'))
+        if jnp.isnan(loss):
+            raise RuntimeError('NaN loss')
+
+        if any(jnp.isnan(p).any() for p in jax.tree_leaves(state.params)):
+            raise RuntimeError('NaN params')
 
         et = time.time()
         dt = et - st

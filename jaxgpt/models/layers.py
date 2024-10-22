@@ -23,7 +23,7 @@ class CasualSelfAttention(nn.Module):
 
         assert config.n_embd % config.n_head == 0
 
-        #head_size = config.n_embd // config.n_head
+        head_size = config.n_embd // config.n_head
 
         self.c_attn = nn.Dense(config.n_embd * 3)
         self.c_proj = nn.Dense(config.n_embd) # output projection
@@ -78,12 +78,12 @@ class Block(nn.Module):
 
     def setup(self) -> None:
         config = self.config
-        self.ln1 = nn.LayerNorm(epsilon=1e-5)
+        self.ln_1 = nn.LayerNorm(epsilon=1e-5)
         self.attn = CasualSelfAttention(config)
-        self.ln2 = nn.LayerNorm(epsilon=1e-5)
+        self.ln_2 = nn.LayerNorm(epsilon=1e-5)
         self.mlp = MLP(config)
 
     def __call__(self, x: jax.Array, *, train: bool) -> jax.Array:
-        x = x + self.attn(self.ln1(x), train=train)
-        x = x + self.mlp(self.ln2(x), train=train)
+        x = x + self.attn(self.ln_1(x), train=train)
+        x = x + self.mlp(self.ln_2(x), train=train)
         return x

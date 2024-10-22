@@ -77,7 +77,7 @@ class GPT(nn.Module):
     def from_pretrained(cls, model_type, override_args: Optional[dict] = None):
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large'}
 
-        if not override_args: override_args = {}
+        override_args = override_args or {}
         assert all(k == 'dropout' for k in override_args)
 
         from transformers import GPT2LMHeadModel
@@ -167,7 +167,7 @@ class GPT(nn.Module):
     def generate(self, key, params, input_tokens, max_new_tokens, temperature=1.0, top_k=None):
         B, T = input_tokens.shape
         padding = jnp.zeros((B, max_new_tokens), dtype=jnp.int32)
-        tokens = jnp.concatenate([input_tokens, padding], axis=1)
+        tokens = jnp.concatenate([input_tokens, padding], axis=-1)
         indexes = jnp.arange(T, T+max_new_tokens)
 
         def scan_f(tokens, i):
@@ -203,7 +203,8 @@ class GPT(nn.Module):
             variables = self.init(jax.random.PRNGKey(SEED), jnp.ones((1,1), dtype=jnp.int32), train=False)
             params = variables['params']
 
-        params = freeze(params)
+        #params = freeze(params)
+
         if decay_lr:
             assert warmup_iters is not None and lr_decay_iters is not None and min_lr is not None
             lr_schedule = optax.warmup_cosine_decay_schedule(
