@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 import optax
 import chex
-import orbax.checkpoint as orbax
+import orbax.checkpoint as ocp
 import tiktoken
 
 
@@ -38,19 +38,18 @@ from pprint import pprint
 from functools import partial
 
 from flax import serialization
-from flax.training import train_state
 
 from jaxgpt.models.gpt import GPT, GPTConfig
-from jaxgpt.utils.common import colored, print_compiling, Timing
+from jaxgpt.utils.common import colored
 
 
 root_key = jax.random.key(SEED)
 
 
 out_dir = "out"
-eval_interval = 20
+eval_interval = 2000
 log_interval = 1
-eval_iters = 10
+eval_iters = 100
 eval_only = False
 always_save_checkpoint = True
 init_from = "scratch"  # or 'scratch' or 'resume' or 'gpt2' for pretrained
@@ -121,16 +120,10 @@ config = {k: globals()[k] for k in config_keys}
 pprint(config)
 
 checkpoint_path = Path(out_dir) / "checkpoints"
-checkpoint_manager = orbax.CheckpointManager(
+checkpoint_manager = ocp.CheckpointManager(
     checkpoint_path,
-    # checkpointers=orbax.Checkpointer(orbax.PyTreeCheckpointHandler()),
-    orbax.PyTreeCheckpointer(),
-    options=orbax.CheckpointManagerOptions(
-        max_to_keep=2,
-        # keep_checkpoints_without_metrics=False,
-        keep_period=None,
-        create=True,
-    ),
+    options=ocp.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=1),
+    item_names=("params", "opt_state"),
 )
 
 data_dir = os.path.join("../data/data", dataset)
@@ -284,7 +277,7 @@ def estimate_loss(model_state: Model_State):
         losses = np.zeros(eval_iters)
 
         progress_bar = tqdm(total=eval_iters)
-        progress_bar.set_description(f"Loss: {0.0:.3f}")
+        progress_bar.set_description(f"{split.capitalize()} Loss: {0.0:.3f}")
 
         for k in range(eval_iters):
             batch = get_batch(split)
@@ -300,7 +293,9 @@ def estimate_loss(model_state: Model_State):
             losses[k] = float(loss)
 
             progress_bar.update(1)
-            progress_bar.set_description(f"Loss: {float(loss):.3f}")
+            progress_bar.set_description(
+                f"{split.capitalize()} Loss: {float(loss):.3f}"
+            )
 
         out[split] = losses.mean()
         progress_bar.close()
@@ -340,7 +335,7 @@ while True:
         sample_str = colored(
             sample(state.params, sample_key, tokens=test_batch[0][0:1, :5]), "yellow"
         )
-        print(f'Sample: "{sample_str}"')
+        print(f'Generation Sample: "{sample_str}"')
 
         losses = estimate_loss(model_state)
 
@@ -359,13 +354,21 @@ while True:
                 "config": config,
             }
 
+            # * Arrays are sharded by default
+            gathered_opt_state = jax.tree.map(
+                lambda x: jax.device_get(x), model_state.opt_state
+            )
+            gathered_model_params = jax.tree.map(
+                lambda x: jax.device_get(x), model_state.model_params
+            )
             checkpoint_manager.save(
-                step=iter_num,
-                items=checkpoint,
-                save_kwargs=dict(
-                    save_args=orbax.save_args_from_target(checkpoint),
+                iter_num,
+                args=ocp.args.Composite(
+                    params=ocp.args.StandardSave(gathered_model_params),
+                    opt_state=ocp.args.StandardSave(gathered_opt_state),
                 ),
             )
+            checkpoint_manager.wait_until_finished()
 
         print("Training", "- " * 20)
 
