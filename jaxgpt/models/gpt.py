@@ -52,6 +52,7 @@ class GPT(nn.Module):
         x = self.ln_f(x)
 
         logits = self.wte.attend(x)
+        logits = jax.lax.clamp(-100.0, logits, 100.0)
 
         if targets is not None:
             loss = optax.softmax_cross_entropy_with_integer_labels(logits, targets).mean()
@@ -203,7 +204,7 @@ class GPT(nn.Module):
             variables = self.init(jax.random.PRNGKey(SEED), jnp.ones((1,1), dtype=jnp.int32), train=False)
             params = variables['params']
 
-        #params = freeze(params)
+        params = freeze(params)
 
         if decay_lr:
             assert warmup_iters is not None and lr_decay_iters is not None and min_lr is not None
@@ -217,10 +218,13 @@ class GPT(nn.Module):
         else:
             lr_schedule = learning_rate
         
-        tx = self.configure_optimizers(
-            params,
-            weight_decay,
-            lr_schedule,
-            betas=(beta1, beta2)
+        tx = optax.chain(
+            optax.clip_by_global_norm(1.0),
+            self.configure_optimizers(
+                params,
+                weight_decay,
+                lr_schedule,
+                betas=(beta1, beta2)
+            )
         )
         return train_state.TrainState.create(apply_fn=self.apply, params=params, tx=tx)
