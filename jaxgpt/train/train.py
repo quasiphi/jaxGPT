@@ -32,6 +32,7 @@ import orbax.checkpoint as orbax
 import tiktoken
 
 
+from tqdm import tqdm
 from pathlib import Path
 from pprint import pprint
 from functools import partial
@@ -47,9 +48,9 @@ root_key = jax.random.key(SEED)
 
 
 out_dir = "out"
-eval_interval = 2000
+eval_interval = 20
 log_interval = 1
-eval_iters = 500
+eval_iters = 10
 eval_only = False
 always_save_checkpoint = True
 init_from = "scratch"  # or 'scratch' or 'resume' or 'gpt2' for pretrained
@@ -211,7 +212,6 @@ root_key, model_init_param_key = jax.random.split(root_key)
 model_params = model.init(
     model_init_param_key,
     jnp.ones((batch_size, block_size), dtype=jnp.int32),
-    # jnp.ones((batch_size, block_size), dtype=jnp.int32),
     train=False,
 )
 
@@ -222,6 +222,7 @@ model_params = model.init(
 #         model_params, sharding.replicate(axis=0, keepdims=True)
 #     )
 
+# TODO: Choose a lr schedule based on config
 # lr_schedule = optax.warmup_cosine_decay_schedule(
 #     init_value=1e-7,
 #     peak_value=learning_rate,
@@ -241,7 +242,7 @@ optimizer = optax.chain(optax.clip_by_global_norm(gradient_clipping), optimizer)
 optimizer_state = optimizer.init(model_params)
 
 param_count = sum(x.size for x in jax.tree.leaves(model_params))
-print("Model Parameters:", param_count)
+print(colored(f"Model Parameters: {param_count}", "blue"))
 
 
 @chex.dataclass
@@ -253,43 +254,15 @@ class Model_State:
 model_state = Model_State(model_params=model_params, opt_state=optimizer_state)
 
 
-@partial(jax.jit, static_argnames=("train",))
-def forward(state, inputs, *, train: bool):
-    # inputs, _ = batch
-    rngs = {}
-    if train and dropout > 0.0:
-        rngs["dropout"] = jax.random.fold_in(jax.random.PRNGKey(80085), state.step)
-    return state.apply_fn(
-        {"params": state.params}, inputs, train=train, rngs=jax.random.key(42)
-    )
-
-
 # @jax.jit
 def train_step(rnd_key, model_state: Model_State, batch):
     def loss_fn(params):
         inputs, targets = batch
 
-        logits = state.apply_fn(params, inputs, train=True, rngs=rnd_key)
-
-        # jax.debug.print(
-        #     "Inputs: {} Targets: {} Logits: {}", inputs.shape, targets.shape, logits.shape
-        # )
-        print(
-            "Inputs: Targets: Logits:", inputs.shape, targets.shape, logits.shape
-        )
-        # jax.debug.print(
-        #     "Inputs: {} Targets: {} Logits: {}",
-        #     inputs.shape,
-        #     targets.shape,
-        #     logits.shape,
-        # )
+        logits = model.apply(params, inputs, train=True, rngs=rnd_key)
 
         loss = optax.softmax_cross_entropy_with_integer_labels(logits, targets).mean()
 
-        # loss = softmax_cross_entropy(logits, targets).mean()
-
-        jax.debug.print("Loss: {}", loss)
-        # logits, loss = state.apply_fn({'params': params}, batch[0], train=True, targets=batch[1])
         return loss
 
     params = model_state.model_params
@@ -304,19 +277,34 @@ def train_step(rnd_key, model_state: Model_State, batch):
     return loss, model_state
 
 
-def estimate_loss():
+def estimate_loss(model_state: Model_State):
     out = {}
+
     for split in ["train", "test"]:
         losses = np.zeros(eval_iters)
+
+        progress_bar = tqdm(total=eval_iters)
+        progress_bar.set_description(f"Loss: {0.0:.3f}")
+
         for k in range(eval_iters):
             batch = get_batch(split)
-            logits = forward(state, batch, train=False)
+            inputs, labels = batch
 
-            _, labels = batch
+            logits = model.apply(
+                model_state.model_params, inputs, train=True, rngs=jax.random.key(0)
+            )
 
-            loss = optax.softmax_cross_entropy(logits, labels).mean()
+            loss = optax.softmax_cross_entropy_with_integer_labels(
+                logits, labels
+            ).mean()
             losses[k] = float(loss)
+
+            progress_bar.update(1)
+            progress_bar.set_description(f"Loss: {float(loss):.3f}")
+
         out[split] = losses.mean()
+        progress_bar.close()
+
     return out
 
 
@@ -342,45 +330,52 @@ def sample(params, key, tokens) -> str:
 
 test_batch = get_batch("test")
 train_batch = get_batch("train")
-print("Test Batch:", test_batch[0].shape, test_batch[1].shape)
-print("Train Batch", train_batch[0].shape, train_batch[1].shape)
 st = time.time()
 while True:
-    # ! Disable validation for now
-    # if iter_num % eval_interval == 0:
-    #     print("evaluating...")
-    #     sample_str = sample(
-    #         state.params, jax.random.PRNGKey(80085), tokens=test_batch[0][0:1, :5]
-    #     )
-    #     print(f"sample: {sample_str}")
-    #     losses = estimate_loss()
-    #     print(
-    #         f"step {iter_num}: train loss {losses['train']:.4f}, test loss {losses['test']:.4f}"
-    #     )
-    #     if iter_num > 0:
-    #         print(f"saving checkpoint to {out_dir}")
-    #         checkpoint = {
-    #             "state": state,
-    #             "model_args": model_args,
-    #             "iter_num": iter_num,
-    #             "val_loss": losses["test"],
-    #             "config": config,
-    #         }
-    #         checkpoint_manager.save(
-    #             step=iter_num,
-    #             items=checkpoint,
-    #             save_kwargs=dict(
-    #                 save_args=orbax.save_args_from_target(checkpoint),
-    #             ),
-    #         )
-    # if iter_num == 0 and eval_only:
-    #     break
+    if iter_num % eval_interval == 0:
+        print("Validation", "- " * 20)
+
+        root_key, sample_key = jax.random.split(root_key)
+
+        sample_str = colored(
+            sample(state.params, sample_key, tokens=test_batch[0][0:1, :5]), "yellow"
+        )
+        print(f'Sample: "{sample_str}"')
+
+        losses = estimate_loss(model_state)
+
+        print(
+            f"step {iter_num}: train loss {losses['train']:.4f}, test loss {losses['test']:.4f}"
+        )
+
+        if iter_num > 0:
+            print(f"saving checkpoint to {out_dir}")
+
+            checkpoint = {
+                "state": state,
+                "model_args": model_args,
+                "iter_num": iter_num,
+                "val_loss": losses["test"],
+                "config": config,
+            }
+
+            checkpoint_manager.save(
+                step=iter_num,
+                items=checkpoint,
+                save_kwargs=dict(
+                    save_args=orbax.save_args_from_target(checkpoint),
+                ),
+            )
+
+        print("Training", "- " * 20)
+
+    if iter_num == 0 and eval_only:
+        break
 
     root_key, train_key = jax.random.split(root_key)
     loss, model_state = train_step(train_key, model_state, get_batch("train"))
-    if jnp.isnan(loss):
-        raise RuntimeError("NaN loss")
 
+    # * NaN Check
     if any(jnp.isnan(p).any() for p in jax.tree.leaves(state.params)):
         raise RuntimeError("NaN params")
 
