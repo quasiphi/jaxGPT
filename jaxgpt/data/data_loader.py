@@ -77,7 +77,7 @@ class DataLoader:
                 test_data.append(file_data[int(.9*n):])
 
         # not sure if thats a best way to join datasets
-        test_data = ' '.join(test_data)
+        train_data = ' '.join(train_data)
         test_data = ' '.join(test_data)
 
         train_ids = self.tokenizer.encode_ordinary(train_data)
