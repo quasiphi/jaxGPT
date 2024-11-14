@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Generator, Optional
 
 import tiktoken
+import numpy as np
 import jax.numpy as jnp
 import jax.random as jrandom
 
@@ -84,8 +85,8 @@ class DataLoader:
         train_ids = self.tokenizer.encode_ordinary(train_data)
         test_ids = self.tokenizer.encode_ordinary(test_data)
 
-        train_ids = jnp.array(train_ids, dtype=jnp.uint16)
-        test_ids = jnp.array(test_ids, dtype=jnp.uint16)
+        train_ids = np.array(train_ids, dtype=np.uint16)
+        test_ids = np.array(test_ids, dtype=np.uint16)
 
         train_out = out_dir / 'train.bin'
         test_out = out_dir / 'test.bin'
@@ -97,7 +98,7 @@ class DataLoader:
         print(f"train @ {train_out}")
         print(f"test @ {test_out}")
 
-        return train_ids, test_ids
+        return jnp.array(train_ids), jnp.array(test_ids)
 
     def __iter__(self) -> Generator[tuple[jnp.array, jnp.array], None, None]:
         data = self.train_data if self.split == 'train' else self.test_data
