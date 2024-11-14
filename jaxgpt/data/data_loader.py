@@ -8,7 +8,7 @@ import tiktoken
 import jax.numpy as jnp
 import jax.random as jrandom
 
-from jaxgpt.utils.common import fetch
+from jaxgpt.utils.common import fetch, colored
 
 OSX = platform.system() == 'Darwin'
 CACHE_DIR = (
@@ -46,6 +46,7 @@ class DataLoader:
         train_data = []
 
         for name, url in self.source_dict.items():
+            print(f"preparing {name} from {url}")
             if url.startswith(('http', 'https')):
                 file = fetch(url)
             else:

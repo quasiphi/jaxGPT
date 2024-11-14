@@ -159,10 +159,11 @@ def fetch(url: str, name: Optional[str]=None, allow_cache=(not getenv('DISABLE_H
     if not fp.is_file() or not allow_cache:
         with urllib.request.urlopen(url, timeout=10) as r:
             assert r.status == 200
-            print(f'saving from {r} to tmp file at {fp}')
             total_bytes = int(r.headers.get('Content-Length', 0))  
+            print(f"preparing to download {total_bytes} bytes")
             progress_bar = tqdm(total=total_bytes, unit='B', unit_scale=True, desc=url)
             (path := fp.parent).mkdir(parents=True, exist_ok=True)
+            print(f'saving from {r} to tmp file at {fp}')
             with tempfile.NamedTemporaryFile(dir=path, delete=False) as f:
                 while chunk := r.read(16384):
                     progress_bar.update(f.write(chunk))
