@@ -1,5 +1,4 @@
 import os
-import tmp
 import zipfile
 import platform
 from pathlib import Path
