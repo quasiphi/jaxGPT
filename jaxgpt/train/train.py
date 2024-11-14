@@ -41,6 +41,7 @@ from flax import serialization
 
 from jaxgpt.models.gpt import GPT, GPTConfig
 from jaxgpt.utils.common import colored
+from jaxgpt.data.data_loader import DataLoader
 
 
 root_key = jax.random.key(SEED)
@@ -126,7 +127,7 @@ checkpoint_manager = ocp.CheckpointManager(
     item_names=("params", "opt_state"),
 )
 
-data_dir = os.path.join("../data/data", dataset)
+data_dir = os.path.join("data", dataset)
 train_data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
 test_data = np.memmap(os.path.join(data_dir, "test.bin"), dtype=np.uint16, mode="r")
 
@@ -276,11 +277,13 @@ def estimate_loss(model_state: Model_State):
     for split in ["train", "test"]:
         losses = np.zeros(eval_iters)
 
+        batch_iterator = train_iter if split == "train" else test_iter
+
         progress_bar = tqdm(total=eval_iters)
         progress_bar.set_description(f"{split.capitalize()} Loss: {0.0:.3f}")
 
         for k in range(eval_iters):
-            batch = get_batch(split)
+            batch = next(batch_iterator)
             inputs, labels = batch
 
             logits = model.apply(
@@ -323,8 +326,32 @@ def sample(params, key, tokens) -> str:
     return tokenizer.decode(tokens[0])
 
 
-test_batch = get_batch("test")
-train_batch = get_batch("train")
+
+
+DATASETS = {
+    "enron-corpus": "https://tile.loc.gov/storage-services/master/gdc/gdcdatasets/2018487913/2018487913.zip",
+    "shakespeare": "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt",
+}
+
+train_dataloader = DataLoader(
+    DATASETS,
+    batch_size,
+    block_size,
+    split='train',
+    seed=SEED
+)
+
+test_dataloader = DataLoader(
+    DATASETS,
+    batch_size,
+    block_size,
+    split='test',
+    seed=SEED
+)
+
+train_iter = iter(train_dataloader)
+test_iter = iter(test_dataloader)
+
 st = time.time()
 while True:
     if iter_num % eval_interval == 0:
@@ -332,6 +359,7 @@ while True:
 
         root_key, sample_key = jax.random.split(root_key)
 
+        test_batch = next(test_iter)
         sample_str = colored(
             sample(state.params, sample_key, tokens=test_batch[0][0:1, :5]), "yellow"
         )
@@ -376,7 +404,9 @@ while True:
         break
 
     root_key, train_key = jax.random.split(root_key)
-    loss, model_state = train_step(train_key, model_state, get_batch("train"))
+
+    train_batch = next(train_iter)
+    loss, model_state = train_step(train_key, model_state, train_batch)
 
     # * NaN Check
     if any(jnp.isnan(p).any() for p in jax.tree.leaves(state.params)):
