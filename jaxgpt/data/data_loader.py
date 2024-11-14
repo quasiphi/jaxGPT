@@ -54,13 +54,28 @@ class DataLoader:
                 if not file.exists():
                     raise FileNotFoundError(f'Source at {file} does not exist')
 
+            if zipfile.is_zipfile(file):
+                extract_dir = out_dir / name
+                extract_dir.mkdir(parents=True, exist_ok=True)
 
-            with open(file, 'r') as f:
-                file_data = f.read()
-            n = len(file_data)
+                with zipfile.ZipFile(file, 'r') as zref:
+                    zref.extractall(extract_dir)
 
-            train_data.append(file_data[:int(.9*n)])
-            test_data.append(file_data[int(.9*n):])
+                for extracted_file in extract_dir:
+                    with open(extracted_file, 'r') as f:
+                        file_data = f.read()
+                    n = len(file_data)
+
+                    train_data.append(file_data[:int(.9*n)])
+                    test_data.append(file_data[int(.9*n):])
+
+            else:
+                with open(file, 'r') as f:
+                    file_data = f.read()
+                n = len(file_data)
+
+                train_data.append(file_data[:int(.9*n)])
+                test_data.append(file_data[int(.9*n):])
 
         # not sure if thats a best way to join datasets
         test_data = ' '.join(test_data)
