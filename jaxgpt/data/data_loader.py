@@ -26,6 +26,10 @@ class DataLoader:
     Custom data loader for this llm usage.
     """
 
+    TRAIN_SPLIT = 0.75
+    VAL_SPLIT = 0.20
+    TEST_SPLIT = 0.05
+
     def __init__(self, source_dict: dict[str, str], batch_size: int, seq_len: int, split: str, seed: int = 0):
         self.source_dict = source_dict 
         self.batch_size = batch_size
@@ -44,6 +48,7 @@ class DataLoader:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         test_data = []
+        val_data = []
         train_data = []
 
         for name, url in self.source_dict.items():
@@ -65,40 +70,58 @@ class DataLoader:
                 for extracted_file in extract_dir:
                     with open(extracted_file, 'r') as f:
                         file_data = f.read()
-                    n = len(file_data)
 
-                    train_data.append(file_data[:int(.9*n)])
-                    test_data.append(file_data[int(.9*n):])
+                    n = len(file_data)
+                    train_end = int(self.TRAIN_SPLIT * n)
+                    val_end = int((self.TRAIN_SPLIT + self.VAL_SPLIT) * n)
+
+                    train_data.append(file_data[:train_end])
+                    val_data.append(file_data[train_end:val_end])
+                    test_data.append(file_data[val_end:])
 
             else:
                 with open(file, 'r') as f:
                     file_data = f.read()
-                n = len(file_data)
 
-                train_data.append(file_data[:int(.9*n)])
-                test_data.append(file_data[int(.9*n):])
+                n = len(file_data)
+                train_end = int(self.TRAIN_SPLIT * n)
+                val_end = int((self.TRAIN_SPLIT + self.VAL_SPLIT) * n)
+
+                train_data.append(file_data[:train_end])
+                val_data.append(file_data[train_end:val_end])
+                test_data.append(file_data[val_end:])
 
         # not sure if thats a best way to join datasets
         train_data = ' '.join(train_data)
+        val_data = ' '.join(val_data)
         test_data = ' '.join(test_data)
 
         train_ids = self.tokenizer.encode_ordinary(train_data)
+        val_ids = self.tokenizer.encode_ordinary(val_data)
         test_ids = self.tokenizer.encode_ordinary(test_data)
 
         train_ids = np.array(train_ids, dtype=np.uint16)
+        val_ids = np.array(val_ids, dtpye=np.uint16)
         test_ids = np.array(test_ids, dtype=np.uint16)
 
         train_out = out_dir / 'train.bin'
+        val_out = out_dir / 'val.bin'
         test_out = out_dir / 'test.bin'
 
         train_ids.tofile(train_out)
+        val_ids.tofile(val_out)
         test_ids.tofile(test_out)
 
         print(f"saved train and test data to {out_dir}")
         print(f"train @ {train_out}")
+        print(f"val @ {val_out}")
         print(f"test @ {test_out}")
 
-        return jnp.array(train_ids), jnp.array(test_ids)
+        return (
+            jnp.array(train_ids), 
+            jnp.array(val_ids),
+            jnp.array(test_ids)
+        )
 
     def __iter__(self) -> Generator[tuple[jnp.array, jnp.array], None, None]:
         data = self.train_data if self.split == 'train' else self.test_data
