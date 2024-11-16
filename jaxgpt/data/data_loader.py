@@ -21,6 +21,26 @@ DATASETS = {
     "shakespeare": "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt",
 }
 
+class SplitDataLoader:
+    def __init__(self, data, batch_size: int, seq_len: int, seed: int = 0):
+        self.data = data
+        self.batch_size = batch_size
+        self.seq_len = seq_len
+        self.seed = seed
+
+        self.rng_key = jrandom.PRNGKey(seed)
+        self.tokenizer = tiktoken.get_encoding('gpt2')
+
+    def __iter__(self) -> Generator[tuple[jnp.array, jnp.array], None, None]:
+        while True:
+            self.rng_key, subkey = jrandom.split(self.rng_key)
+            indicies = jrandom.randint(subkey, (self.batch_size,), 0, len(self.data) - self.seq_len - 1)
+
+            x = jnp.stack([self.data[i : i + self.seq_len].astype(jnp.int32) for i in indicies])
+            y = jnp.stack([self.data[i + 1 : i + self.seq_len + 1].astype(jnp.int32) for i in indicies])
+
+            yield x, y
+
 class DataLoader:
     """
     Custom data loader for this llm usage.
@@ -30,11 +50,10 @@ class DataLoader:
     VAL_SPLIT = 0.20
     TEST_SPLIT = 0.05
 
-    def __init__(self, source_dict: dict[str, str], batch_size: int, seq_len: int, split: str, seed: int = 0):
+    def __init__(self, source_dict: dict[str, str], batch_size: int, seq_len: int, seed: int = 0):
         self.source_dict = source_dict 
         self.batch_size = batch_size
         self.seq_len = seq_len
-        self.split = split
         self.rng_key = jrandom.PRNGKey(seed)
 
         self.tokenizer = tiktoken.get_encoding('gpt2')
@@ -101,7 +120,7 @@ class DataLoader:
         test_ids = self.tokenizer.encode_ordinary(test_data)
 
         train_ids = np.array(train_ids, dtype=np.uint16)
-        val_ids = np.array(val_ids, dtpye=np.uint16)
+        val_ids = np.array(val_ids, dtype=np.uint16)
         test_ids = np.array(test_ids, dtype=np.uint16)
 
         train_out = out_dir / 'train.bin'
@@ -123,6 +142,25 @@ class DataLoader:
             jnp.array(test_ids)
         )
 
+    def get_data(self) -> tuple[jnp.array, jnp.array, jnp.array]:
+        return self.train_data, self.val_data, self.test_data
+
+    def get_splitloaders(self) -> tuple[SplitDataLoader, SplitDataLoader, SplitDataLoader]:
+        return (
+            SplitDataLoader(self.train_data, self.batch_size, self.seq_len),
+            SplitDataLoader(self.val_data, self.batch_size, self.seq_len),
+            SplitDataLoader(self.test_data, self.batch_size, self.seq_len),
+        )
+
+    def get_dataiters(self):
+        return (
+            iter(SplitDataLoader(self.train_data, self.batch_size, self.seq_len)),
+            iter(SplitDataLoader(self.val_data, self.batch_size, self.seq_len)),
+            iter(SplitDataLoader(self.test_data, self.batch_size, self.seq_len)),
+        )
+
+
+    # TODO: probably remove this
     def __iter__(self) -> Generator[tuple[jnp.array, jnp.array], None, None]:
         data = {
             'train': self.train_data,
@@ -140,4 +178,3 @@ class DataLoader:
             y = jnp.stack([data[i + 1 : i + self.seq_len + 1].astype(jnp.int32) for i in indicies])
 
             yield x, y
-

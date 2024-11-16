@@ -274,10 +274,17 @@ def train_step(rnd_key, model_state: Model_State, batch):
 def estimate_loss(model_state: Model_State):
     out = {}
 
-    for split in ["train", "test"]:
+    for split in ["train", "val", "test"]:
         losses = np.zeros(eval_iters)
 
         batch_iterator = train_iter if split == "train" else test_iter
+        if split == 'train':
+            batch_iterator = train_iter
+        elif split == 'val':
+            batch_iterator = val_iter
+        else:
+            batch_iterator = test_iter
+            
 
         progress_bar = tqdm(total=eval_iters)
         progress_bar.set_description(f"{split.capitalize()} Loss: {0.0:.3f}")
@@ -329,28 +336,19 @@ def sample(params, key, tokens) -> str:
 
 
 DATASETS = {
-    "enron-corpus": "https://tile.loc.gov/storage-services/master/gdc/gdcdatasets/2018487913/2018487913.zip",
+    #"enron-corpus": "https://tile.loc.gov/storage-services/master/gdc/gdcdatasets/2018487913/2018487913.zip",
     "shakespeare": "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt",
 }
 
-train_dataloader = DataLoader(
+base_loader = DataLoader(
     DATASETS,
     batch_size,
     block_size,
-    split='train',
     seed=SEED
 )
 
-test_dataloader = DataLoader(
-    DATASETS,
-    batch_size,
-    block_size,
-    split='test',
-    seed=SEED
-)
-
-train_iter = iter(train_dataloader)
-test_iter = iter(test_dataloader)
+#train_data, val_data, test_data = base_loader.get_data()
+train_iter, val_iter, test_iter = base_loader.get_dataiters()
 
 st = time.time()
 while True:
@@ -367,8 +365,14 @@ while True:
 
         losses = estimate_loss(model_state)
 
+        #print(
+        #    f"step {iter_num}: train loss {losses['train']:.4f}, test loss {losses['test']:.4f}"
+        #)
+
         print(
-            f"step {iter_num}: train loss {losses['train']:.4f}, test loss {losses['test']:.4f}"
+            f"step {iter_num}: train loss {losses['train']:.4f}, "
+            f"val loss {losses['val']:.4f}, "
+            f"test loss {losses['test']:.4f}"
         )
 
         if iter_num > 0:
@@ -378,7 +382,7 @@ while True:
                 "state": state,
                 "model_args": model_args,
                 "iter_num": iter_num,
-                "val_loss": losses["test"],
+                "val_loss": losses["val"],
                 "config": config,
             }
 
