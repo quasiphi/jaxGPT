@@ -39,7 +39,7 @@ class DataLoader:
 
         self.tokenizer = tiktoken.get_encoding('gpt2')
 
-        self.train_data, self.test_data = self.prepare()
+        self.train_data, self.val_data, self.test_data = self.prepare()
 
 
     # TODO handle zip files
@@ -124,7 +124,15 @@ class DataLoader:
         )
 
     def __iter__(self) -> Generator[tuple[jnp.array, jnp.array], None, None]:
-        data = self.train_data if self.split == 'train' else self.test_data
+        data = {
+            'train': self.train_data,
+            'val': self.val_data,
+            'test': self.test_data,
+        }.get(self.split)
+
+        if data is None:
+            raise ValueError(f"invalid split '{self.split}'. Must be one of train, val, test")
+
         while True:
             self.rng_key, subkey = jrandom.split(self.rng_key)
             indicies = jrandom.randint(subkey, (self.batch_size,), 0, len(data) - self.seq_len - 1)
