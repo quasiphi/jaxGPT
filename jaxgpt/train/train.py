@@ -128,17 +128,6 @@ checkpoint_manager = ocp.CheckpointManager(
 )
 
 data_dir = os.path.join("data", dataset)
-train_data = np.memmap(os.path.join(data_dir, "train.bin"), dtype=np.uint16, mode="r")
-test_data = np.memmap(os.path.join(data_dir, "test.bin"), dtype=np.uint16, mode="r")
-
-
-def get_batch(split):
-    data = train_data if split == "train" else test_data
-    ix = np.random.randint(len(data) - block_size, size=(batch_size,))
-    x = np.stack([data[i : i + block_size].astype(np.int32) for i in ix])
-    y = np.stack([data[i + 1 : i + 1 + block_size].astype(np.int32) for i in ix])
-    return jnp.array(x), jnp.array(y)
-
 
 iter_num = 0
 best_val_loss = 1e9
